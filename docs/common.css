@@ -1,0 +1,90 @@
+/* https://fonts.google.com/specimen/Zen+Old+Mincho */
+/* @import url('https://fonts.googleapis.com/css2?family=Zen+Old+Mincho:wght@400;700&display=swap'); */
+
+/* https://github.com/jdinhify/vscode-theme-gruvbox */
+:root {
+  --c-bg0_hard: #1d2021;
+  --c-bg0_medium: #282828;
+  --c-bg0_soft: #32302f;
+  --c-bg1: #3c3836;
+  --c-bg2: #504945;
+  --c-bg3: #665c54;
+  --c-bg4: #7c6f64;
+  --c-grey: #928374;
+  --c-fg0: #fbf1c7;
+  --c-fg1: #ebdbb2;
+  --c-fg2: #d5c4a1;
+  --c-fg3: #bdae93;
+  --c-fg4: #a89984;
+  --c-red1: #cc241d;
+  --c-red2: #fb4934;
+  --c-green1: #98971a;
+  --c-green2: #b8bb26;
+  --c-yellow1: #d79921;
+  --c-yellow2: #fabd2f;
+  --c-blue1: #458588;
+  --c-blue2: #83a598;
+  --c-purple1: #b16286;
+  --c-purple2: #d3869b;
+  --c-aqua1: #689d6a;
+  --c-aqua2: #8ec07c;
+  --c-orange1: #d65d0e;
+  --c-orange2: #fe8019;
+  --c-transparent: #0000;
+  --c-white: #ebdbb2;
+  --overlay-filter: rgba(64, 64, 64, 0.8);
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  width: 100vw;
+  min-height: 100vh;
+  background-color: var(--c-bg0_hard);
+  color: var(--c-fg0);
+  font-family: "Zen Old Mincho", serif;
+}
+
+a {
+  color: var(--c-aqua1);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+a:hover {
+  color: var(--c-aqua2);
+  text-decoration: none;
+}
+
+a[target="_blank"] {
+  color: var(--c-blue1);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+a[target="_blank"]:hover {
+  color: var(--c-blue2);
+  text-decoration: none;
+}
+
+/* simple icons */
+.si {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  background-repeat: no-repeat;
+  transition: background-image 0.2s ease;
+  vertical-align: middle;
+}
+
+.si.github {
+  background-image: url("https://cdn.simpleicons.org/github/fbf1c7"),url("https://cdn.simpleicons.org/github/83a598");
+  background-repeat: no-repeat;
+  transition: background-image 0.2s ease;
+}
+
+a .si.github:hover {
+  background-image: url("https://cdn.simpleicons.org/github/83a598");
+}
