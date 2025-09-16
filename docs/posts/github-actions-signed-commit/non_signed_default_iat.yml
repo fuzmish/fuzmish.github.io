@@ -1,0 +1,29 @@
+name: Push by GitHub App
+
+on:
+  workflow_dispatch:
+
+jobs:
+  push:
+    permissions:
+      # GITHUB_TOKEN で push できるように write 権限を与えます。
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      # ダミーの差分を生じさせます。
+      - name: Make changes
+        run: |
+          echo "{\"value\":$RANDOM}" > a.txt
+          git add a.txt
+      # GITHUB_TOKEN を利用して HTTPS 認証しプッシュします。
+      # ここで設定している user は GITHUB_TOKEN (IAT) に対応する GitHub App の Bot ユーザーです。
+      # 実際にはこの値以外を利用してコミットおよびプッシュすることもできますが、
+      # 後で説明する署名付きコミットの手法で得られる結果と対応づけるためにこのようにしています。
+      - name: Commit and Push
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'automated'
+          git remote set-url origin 'https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git'
+          git push

@@ -1,0 +1,25 @@
+name: Push by GitHub App
+
+on:
+  workflow_dispatch:
+
+jobs:
+  push:
+    permissions:
+      # GITHUB_TOKEN で push できるように write 権限を与えます。
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0生
+      # ダミーの差分を生じさせます。
+      - name: Make changes
+        run: |
+          echo "{\"value\":$RANDOM}" > a.txt
+          git add a.txt
+      # GITHUB_TOKEN を利用して API を呼び出してコミットおよびプッシュします。
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        env:
+          REPOSITORY: ${{ github.repository }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: await (require("./.github/workflows/push.js")({ core, exec, github }))

@@ -1,0 +1,271 @@
+<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>GitHub Actions でコミットに署名する - fuzmish</title><link rel=stylesheet href=/common.css><link rel=stylesheet href=/baseof.css></head><body><header><ul><li><a href=/>fuzmish</a></li><li><a href=/posts/>Blog</a></li><li><a href=/about/>About</a></li><li><a href=https://github.com/fuzmish title=GitHub><span class="si github" style=font-size:150%></span></a></li></ul></header><main><h1>GitHub Actions でコミットに署名する</h1><time datetime=2025-09-14T00:00:00+09:00>2025-09-14T00:00:00+09:00</time><nav id=TableOfContents><ul><li><a href=#動機と前提>動機と前提</a><ul><li><a href=#github-actions-からリポジトリにプッシュするには>GitHub Actions からリポジトリにプッシュするには</a></li><li><a href=#iat-によるリポジトリへのアクセス>IAT によるリポジトリへのアクセス</a></li></ul></li><li><a href=#github-actions-で行うコミットに署名するには>GitHub Actions で行うコミットに署名するには</a><ul><li><a href=#iat-による署名付きコミット>IAT による署名付きコミット</a></li></ul></li><li><a href=#まとめ>まとめ</a></li></ul></nav><h2 id=動機と前提>動機と前提 <a class=heading_anchor href=#%e5%8b%95%e6%a9%9f%e3%81%a8%e5%89%8d%e6%8f%90 title=動機と前提>#</a></h2><p>GitHub Actions を利用した自動化の結果として、なんらかのファイル編集をリポジトリに自動的に反映したい場合があります。
+たとえば、バージョン番号の更新や、自動生成されるコードの取り込みなどが考えられるでしょう。</p><h3 id=github-actions-からリポジトリにプッシュするには>GitHub Actions からリポジトリにプッシュするには <a class=heading_anchor href=#github-actions-%e3%81%8b%e3%82%89%e3%83%aa%e3%83%9d%e3%82%b8%e3%83%88%e3%83%aa%e3%81%ab%e3%83%97%e3%83%83%e3%82%b7%e3%83%a5%e3%81%99%e3%82%8b%e3%81%ab%e3%81%af title="GitHub Actions からリポジトリにプッシュするには">#</a></h3><p>GitHub Actions からプッシュする方法は大きく分けて 3 種類あります。</p><ul><li><a href=https://docs.github.com/authentication/connecting-to-github-with-ssh/managing-deploy-keys#deploy-keys target=_blank rel="noopener noreferrer">Deploy Key</a><ul><li>最も古典的な手法で、事前にリポジトリに登録した SSH キーにより認証しリポジトリにアクセスする方法です。</li><li>他の手法と比較して依存する要素が少ない（git + ssh ネイティブの仕組みで動く）ため、構成はシンプルです。</li><li>ただし、SSH キーは通常は長期クレデンシャルであり、セキュリティ上のリスクが高いです。</li><li>また、アクセスするリポジトリが複数の場合、複数の SSH キーを扱う必要があり、スケーラブルではありません。</li></ul></li><li><a href=https://docs.github.com/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens target=_blank rel="noopener noreferrer">Personal Access Token (PAT)</a><ul><li>あるユーザーに紐づくアクセストークンを事前に発行し、これを利用して HTTPS 認証しリポジトリにアクセスする方法です。</li><li>特定のユーザーアカウントに紐づいてしまうため運用上懸念があり、これを解決するため PAT を発行する専用のマシンアカウントを用意する場合もあるでしょう。</li><li>開発者自身の PAT は権限が強すぎセキュリティ上の懸念がありましたが、<a href=https://docs.github.com/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token target=_blank rel="noopener noreferrer">Fine-grained PAT</a> の登場によりある程度は緩和されました。</li><li>長期クレデンシャルとなるため流出時のリスクがあり、有効期限を設ける、またはローテーションが必要、といった運用上の課題があります。</li><li>PAT で認証されたユーザーがアクセスできるリソースに同等にアクセスできる (Classic PAT)、または、事前に許可された複数のリポジトリに操作ができる (Fine-grained PAT) ことから、Deploy Key よりも利便性は高いでしょう。</li></ul></li><li><a href=https://docs.github.com/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app target=_blank rel="noopener noreferrer">GitHub App Installation Access Token (IAT)</a><ul><li>最も新しく利用できるようになった手法で、GitHub Actions ジョブ実行時に <a href=https://docs.github.com/apps/creating-github-apps/about-creating-github-apps/about-creating-github-apps target=_blank rel="noopener noreferrer">GitHub App</a> として認証し、この App の権限によってリポジトリにアクセスします。</li><li>実行時に生成されるスコープの限定された短期クレデンシャルであり、運用・セキュリティの面では優位性があります。</li><li>App が複数のリポジトリに対してインストールされていれば、それらに単一のアクセストークンでアクセスすることができます。</li><li><a href=https://docs.github.com/actions/concepts/security/github_token#about-the-github_token target=_blank rel="noopener noreferrer">GITHUB_TOKEN</a><ul><li><code>GITHUB_TOKEN</code> は GitHub Actions ジョブ実行時に自動的に生成される認証トークンであり、権限を適切に設定すればこれを利用してリポジトリに push することができます。</li><li>ドキュメントで言及されている通り、これは GitHub Actions を有効化したときに暗黙にインストールされる GitHub App の IAT です。</li><li>ただし、独自に作成した GitHub App を利用する場合と比較して、固有の制約があります。<ul><li>ジョブが実行されているリポジトリにのみアクセスできます。</li><li>このトークンを利用したプッシュに対して <a href=https://docs.github.com/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow target=_blank rel="noopener noreferrer">on: push トリガーによるワークフロー実行ができません</a>。<ul><li>回避策として <code>workflow_run</code> や <code>repository_dispatch</code> を利用することはできます。</li></ul></li></ul></li></ul></li></ul></li></ul><p>それぞれ単純な機能差分に加えて構成や運用コストの差があり、要件に適合する限りにおいていずれも採用することができるでしょう。
+ただし、<a href=https://docs.github.com/apps/creating-github-apps/about-creating-github-apps/deciding-when-to-build-a-github-app target=_blank rel="noopener noreferrer">GitHub App の利用が推奨されている</a>ことと、後述の署名の観点から、今後は GitHub App の採用を重視したいところです。</p><h3 id=iat-によるリポジトリへのアクセス>IAT によるリポジトリへのアクセス <a class=heading_anchor href=#iat-%e3%81%ab%e3%82%88%e3%82%8b%e3%83%aa%e3%83%9d%e3%82%b8%e3%83%88%e3%83%aa%e3%81%b8%e3%81%ae%e3%82%a2%e3%82%af%e3%82%bb%e3%82%b9 title="IAT によるリポジトリへのアクセス">#</a></h3><p>理解の前提になる IAT によるリポジトリへのアクセス（クローンおよびプッシュ）について確認しましょう。
+次に示すのは、IAT を利用してリポジトリに変更をコミットするワークフローの例です。</p><p><details><summary>GITHUB_TOKEN を利用する場合</summary><div class=highlight><pre tabindex=0 style=color:#ebdbb2;background-color:#282828;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-yaml data-lang=yaml><span style=display:flex><span><span style=color:#fb4934>name</span>: Push by GitHub App
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#fb4934>on</span>:
+</span></span><span style=display:flex><span>  <span style=color:#fb4934>workflow_dispatch</span>:
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#fb4934>jobs</span>:
+</span></span><span style=display:flex><span>  <span style=color:#fb4934>push</span>:
+</span></span><span style=display:flex><span>    <span style=color:#fb4934>permissions</span>:
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># GITHUB_TOKEN で push できるように write 権限を与えます。</span>
+</span></span><span style=display:flex><span>      <span style=color:#fb4934>contents</span>: write
+</span></span><span style=display:flex><span>    <span style=color:#fb4934>runs-on</span>: ubuntu-latest
+</span></span><span style=display:flex><span>    <span style=color:#fb4934>steps</span>:
+</span></span><span style=display:flex><span>      - <span style=color:#fb4934>uses</span>: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 <span style=color:#928374;font-style:italic># v5.0.0</span>
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># ダミーの差分を生じさせます。</span>
+</span></span><span style=display:flex><span>      - <span style=color:#fb4934>name</span>: Make changes
+</span></span><span style=display:flex><span>        <span style=color:#fb4934>run</span>: |<span style=color:#b8bb26>
+</span></span></span><span style=display:flex><span><span style=color:#b8bb26>          echo &#34;{\&#34;value\&#34;:$RANDOM}&#34; &gt; a.txt
+</span></span></span><span style=display:flex><span><span style=color:#b8bb26>          git add a.txt</span>
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># GITHUB_TOKEN を利用して HTTPS 認証しプッシュします。</span>
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># ここで設定している user は GITHUB_TOKEN (IAT) に対応する GitHub App の Bot ユーザーです。</span>
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># 実際にはこの値以外を利用してコミットおよびプッシュすることもできますが、</span>
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># 後で説明する署名付きコミットの手法で得られる結果と対応づけるためにこのようにしています。</span>
+</span></span><span style=display:flex><span>      - <span style=color:#fb4934>name</span>: Commit and Push
+</span></span><span style=display:flex><span>        <span style=color:#fb4934>run</span>: |<span style=color:#b8bb26>
+</span></span></span><span style=display:flex><span><span style=color:#b8bb26>          git config user.name &#39;github-actions[bot]&#39;
+</span></span></span><span style=display:flex><span><span style=color:#b8bb26>          git config user.email &#39;41898282+github-actions[bot]@users.noreply.github.com&#39;
+</span></span></span><span style=display:flex><span><span style=color:#b8bb26>          git commit -m &#39;automated&#39;
+</span></span></span><span style=display:flex><span><span style=color:#b8bb26>          git remote set-url origin &#39;https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git&#39;
+</span></span></span><span style=display:flex><span><span style=color:#b8bb26>          git push</span>
+</span></span></code></pre></div></details><details><summary>独自の GitHub App を利用する場合</summary><div class=highlight><pre tabindex=0 style=color:#ebdbb2;background-color:#282828;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-yaml data-lang=yaml><span style=display:flex><span><span style=color:#fb4934>name</span>: Push by GitHub App
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#fb4934>on</span>:
+</span></span><span style=display:flex><span>  <span style=color:#fb4934>workflow_dispatch</span>:
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#fb4934>jobs</span>:
+</span></span><span style=display:flex><span>  <span style=color:#fb4934>push</span>:
+</span></span><span style=display:flex><span>    <span style=color:#fb4934>permissions</span>:
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># プッシュは GitHub App の権限によって行うため、GITHUB_TOKEN 自身に write 権限は不要です。</span>
+</span></span><span style=display:flex><span>      <span style=color:#fb4934>contents</span>: read
+</span></span><span style=display:flex><span>    <span style=color:#fb4934>runs-on</span>: ubuntu-latest
+</span></span><span style=display:flex><span>    <span style=color:#fb4934>steps</span>:
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># GitHub App Installation Access Token (IAT) を取得します。</span>
+</span></span><span style=display:flex><span>      - <span style=color:#fb4934>uses</span>: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42 <span style=color:#928374;font-style:italic># v2.1.4</span>
+</span></span><span style=display:flex><span>        <span style=color:#fb4934>id</span>: auth
+</span></span><span style=display:flex><span>        <span style=color:#fb4934>with</span>:
+</span></span><span style=display:flex><span>          <span style=color:#fb4934>app-id</span>: ${{ secrets.APP_ID }}
+</span></span><span style=display:flex><span>          <span style=color:#fb4934>private-key</span>: ${{ secrets.APP_PRIVATE_KEY }}
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># 取得した IAT を利用して HTTPS 認証しリポジトリクローンします。</span>
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># ジョブが実行されているリポジトリ自身であればクローン自体は secrets.GITHUB_TOKEN を利用しても良いですが、</span>
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># この方法であれば App がアクセスできる任意のリポジトリに対してクローンすることができます。</span>
+</span></span><span style=display:flex><span>      - <span style=color:#fb4934>uses</span>: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 <span style=color:#928374;font-style:italic># v5.0.0</span>
+</span></span><span style=display:flex><span>        <span style=color:#fb4934>with</span>:
+</span></span><span style=display:flex><span>          <span style=color:#fb4934>persist-credentials</span>: <span style=color:#fe8019>false</span>
+</span></span><span style=display:flex><span>          <span style=color:#fb4934>token</span>: ${{ steps.auth.outputs.token }}
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># GITHUB_TOKEN とは異なり App に対応する Bot ユーザーは固有のため、ユーザー情報を動的に取得します。</span>
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># このステップは GITHUB_TOKEN を利用した場合と同様に github-actions[bot] としても良いですが、</span>
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># 後に説明する署名付きコミットの手法で得られる結果と対応づけるためにこのようにしています。</span>
+</span></span><span style=display:flex><span>      - <span style=color:#fb4934>name</span>: Configure git user info
+</span></span><span style=display:flex><span>        <span style=color:#fb4934>env</span>:
+</span></span><span style=display:flex><span>          <span style=color:#fb4934>GH_TOKEN</span>: ${{ steps.auth.outputs.token }}
+</span></span><span style=display:flex><span>        <span style=color:#fb4934>run</span>: |<span style=color:#b8bb26>
+</span></span></span><span style=display:flex><span><span style=color:#b8bb26>          set -x
+</span></span></span><span style=display:flex><span><span style=color:#b8bb26>          USER_NAME=&#39;${{ steps.auth.outputs.app-slug }}[bot]&#39;
+</span></span></span><span style=display:flex><span><span style=color:#b8bb26>          USER_ID=&#34;$(gh api &#34;/users/$USER_NAME&#34; --jq .id)&#34;
+</span></span></span><span style=display:flex><span><span style=color:#b8bb26>          git config user.name &#34;$USER_NAME&#34;
+</span></span></span><span style=display:flex><span><span style=color:#b8bb26>          git config user.email &#34;$USER_ID+$USER_NAME@users.noreply.github.com&#34;</span>
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># ダミーの差分を生じさせます。</span>
+</span></span><span style=display:flex><span>      - <span style=color:#fb4934>name</span>: Make changes
+</span></span><span style=display:flex><span>        <span style=color:#fb4934>run</span>: |<span style=color:#b8bb26>
+</span></span></span><span style=display:flex><span><span style=color:#b8bb26>          echo &#34;{\&#34;value\&#34;:$RANDOM}&#34; &gt; a.txt
+</span></span></span><span style=display:flex><span><span style=color:#b8bb26>          git add a.txt</span>
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># IAT を利用して HTTPS 認証しプッシュします。</span>
+</span></span><span style=display:flex><span>      - <span style=color:#fb4934>name</span>: Commit and Push
+</span></span><span style=display:flex><span>        <span style=color:#fb4934>run</span>: |<span style=color:#b8bb26>
+</span></span></span><span style=display:flex><span><span style=color:#b8bb26>          git commit -m &#39;automated&#39;
+</span></span></span><span style=display:flex><span><span style=color:#b8bb26>          git remote set-url origin &#39;https://x-access-token:${{ steps.auth.outputs.token }}@github.com/${{ github.repository }}.git&#39;
+</span></span></span><span style=display:flex><span><span style=color:#b8bb26>          git push</span>
+</span></span></code></pre></div></details></p><p>いずれの例についても、方針は共通していることがわかります。</p><ol><li>GitHub App の Installation Access Token (IAT) を取得する。<ul><li>GITHUB_TOKEN を利用する場合は取得済みとみなすことができます。</li></ul></li><li>IAT を利用して HTTP 認証しリポジトリを読み書きする。<ul><li>actions/checkout では <code>token</code> input に IAT を指定します。</li><li><code>git {clone,push}</code> コマンドでは <a href=https://docs.github.com/apps/creating-github-apps/authenticating-with-a-github-app/authenticating-as-a-github-app-installation#github-app-%e3%82%a4%e3%83%b3%e3%82%b9%e3%83%88%e3%83%bc%e3%83%ab%e3%81%a8%e3%81%97%e3%81%a6%e3%81%ae%e8%aa%8d%e8%a8%bc%e3%81%ab%e3%81%a4%e3%81%84%e3%81%a6 target=_blank rel="noopener noreferrer">IAT による HTTPS 認証を行う</a>ように Remote URL を設定します。</li></ul></li></ol><p>さて、この例を利用して Bot ユーザーによりリポジトリにプッシュすることはできました。</p><figure><img src=/posts/github-actions-signed-commit/example_unsigned_commits.png alt="Bot ユーザーによってプッシュされたコミット" width=80%><figcaption><p>Bot ユーザーによってプッシュされたコミット</p></figcaption></figure><p><del><em>署名が入ってないやん！署名をつけたいから認証とかちゃんとしたの！！</em></del></p><p>見ての通り、Bot ユーザーによるコミットは署名がされておらず、Verified マークが表示されていません。
+リポジトリへの認証と署名は無関係であり、かつ明示的に署名の手続きを行なったわけでもないため、これは予期された結果です。</p><p>署名の重要性についてはここでは詳しく述べませんが、なりすましの防止、改竄の検知、などに役立つという程度の理解にとどめておいても、それを行うモチベーションになるでしょう（なりますよね？）。
+では、このように GitHub Actions から自動的に行われるコミットに対して署名をするようにするには、どうしたらよいでしょうか？</p><h2 id=github-actions-で行うコミットに署名するには>GitHub Actions で行うコミットに署名するには <a class=heading_anchor href=#github-actions-%e3%81%a7%e8%a1%8c%e3%81%86%e3%82%b3%e3%83%9f%e3%83%83%e3%83%88%e3%81%ab%e7%bd%b2%e5%90%8d%e3%81%99%e3%82%8b%e3%81%ab%e3%81%af title="GitHub Actions で行うコミットに署名するには">#</a></h2><p>自動化されたプロセスによって作成された<a href=https://docs.github.com/authentication/managing-commit-signature-verification/signing-commits target=_blank rel="noopener noreferrer">コミットに署名する</a>ためには、プッシュするための手法と関連づけていくつかのパターンが考えられます。</p><ul><li>Deploy Key<ul><li>リポジトリに登録された SSH キーは「所有者」に紐づかないため、コミットしたユーザーとして便宜上適当なユーザーアカウントを選択して署名者として採用することになります。</li><li>そのユーザーに署名キーペアの公開鍵を登録し、その秘密鍵を GitHub Actions で利用してコミットに署名し、プッシュすることができます。</li><li>認証情報とは別に署名鍵という別の鍵の管理があり、運用上は手間です。</li><li>また、GitHub Actions で自動的に行われたコミットとユーザーによるコミットが一見して区別できないこと。<ul><li>これについては、マシンアカウントを採用する、鍵を分ける、といった緩和策を検討することはできるでしょう。</li></ul></li></ul></li><li>PAT<ul><li>ほぼ Deploy Key と同様の議論です。</li><li>PAT に紐づくユーザーとして署名するのがよいでしょう。</li></ul></li><li>IAT<ul><li>現在のところ最も有力な選択肢です。</li><li>IAT を利用して GitHub API 経由でコミットを作成することにより、そのコミットは GitHub の所有する GPG 鍵によって署名されます。これにより、Bot ユーザーの作成したコミットが署名された状態とすることができます。具体的には:<ul><li>Author は IAT に紐づく GitHub App の Bot ユーザーになります。<ul><li>たとえば、GITHUB_TOKEN を利用した場合は <code>github-actions[bot] &lt;41898282+github-actions[bot]@users.noreply.github.com></code> になります。</li></ul></li><li>Committer は <code>GitHub &lt;noreply@github.com></code> になります。<ul><li>署名はこのユーザーによって行われ、その GPG <a href=https://github.com/web-flow.gpg target=_blank rel="noopener noreferrer">公開鍵</a> により検証が可能です。(<a href=https://github.blog/news-insights/company-news/rotating-credentials-for-github-com-and-new-ghes-patches/#what-you-need-to-do target=_blank rel="noopener noreferrer">参考</a>)</li></ul></li></ul></li><li>ただし、コミットおよびプッシュ操作が API 経由となるため、手続きが通常の git コマンドによる操作とは異なることが難点です。</li></ul></li></ul><p>リポジトリへのアクセス観点だけを考慮しても Deploy Key, PAT は相対的にレガシーな手法であり、GitHub App の利用が推奨されていることもあり、ここでは IAT を利用したアプローチを検証します。</p><h3 id=iat-による署名付きコミット>IAT による署名付きコミット <a class=heading_anchor href=#iat-%e3%81%ab%e3%82%88%e3%82%8b%e7%bd%b2%e5%90%8d%e4%bb%98%e3%81%8d%e3%82%b3%e3%83%9f%e3%83%83%e3%83%88 title="IAT による署名付きコミット">#</a></h3><p>前提</p><ol><li>GitHub App を作成します。<ul><li>ここでは App 権限によりリポジトリへプッシュすることを考えているので、権限として <a href="https://docs.github.com/rest/authentication/permissions-required-for-github-apps?apiVersion=2022-11-28#repository-permissions-for-contents" target=_blank rel="noopener noreferrer">Contents: write</a> を要求するよう設定します。</li></ul></li><li>App の <a href=https://docs.github.com/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps target=_blank rel="noopener noreferrer">Private Key を発行</a>し、アクセスしたいリポジトリの<a href=https://docs.github.com/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets#creating-secrets-for-a-repository target=_blank rel="noopener noreferrer">シークレットに登録</a>します。</li><li>アクセスしたいリポジトリへ App を<a href=https://docs.github.com/apps/using-github-apps/installing-your-own-github-app target=_blank rel="noopener noreferrer">インストール</a>します。</li></ol><p>ここまでセットアップした上で、前述した IAT によるプッシュを行うワークフローを改修する形で、署名付きコミットが行われる例を示します。</p><p><details><summary>共通で利用するスクリプト (.github/workflows/push.js)</summary><div class=highlight><pre tabindex=0 style=color:#ebdbb2;background-color:#282828;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-javascript data-lang=javascript><span style=display:flex><span><span style=color:#fe8019>const</span> fs <span style=color:#fe8019>=</span> require(<span style=color:#b8bb26>&#34;node:fs/promises&#34;</span>);
+</span></span><span style=display:flex><span><span style=color:#fe8019>const</span> path <span style=color:#fe8019>=</span> require(<span style=color:#b8bb26>&#34;node:path&#34;</span>);
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#fe8019>async</span> <span style=color:#fe8019>function</span> main({ core, exec, github }) {
+</span></span><span style=display:flex><span>  <span style=color:#fe8019>const</span> cwd <span style=color:#fe8019>=</span> process.env.ROOT_DIR <span style=color:#fe8019>||</span> process.cwd();
+</span></span><span style=display:flex><span>  <span style=color:#fe8019>const</span> owner <span style=color:#fe8019>=</span> process.env.REPOSITORY.split(<span style=color:#b8bb26>&#34;/&#34;</span>)[<span style=color:#d3869b>0</span>];
+</span></span><span style=display:flex><span>  <span style=color:#fe8019>const</span> repo <span style=color:#fe8019>=</span> process.env.REPOSITORY.split(<span style=color:#b8bb26>&#34;/&#34;</span>)[<span style=color:#d3869b>1</span>];
+</span></span><span style=display:flex><span>  <span style=color:#fe8019>const</span> ref <span style=color:#fe8019>=</span> <span style=color:#b8bb26>`heads/</span><span style=color:#b8bb26>${</span>process.env.REF <span style=color:#fe8019>||</span> <span style=color:#b8bb26>&#34;main&#34;</span><span style=color:#b8bb26>}</span><span style=color:#b8bb26>`</span>;
+</span></span><span style=display:flex><span>  <span style=color:#fe8019>const</span> message <span style=color:#fe8019>=</span> process.env.MESSAGE <span style=color:#fe8019>||</span> <span style=color:#b8bb26>&#34;automated&#34;</span>;
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>  <span style=color:#fe8019>const</span> debug <span style=color:#fe8019>=</span> <span style=color:#fe8019>false</span> <span style=color:#fe8019>?</span> core.info.bind(core) <span style=color:#fe8019>:</span> core.debug.bind(core); <span style=color:#928374;font-style:italic>// for debug output
+</span></span></span><span style=display:flex><span><span style=color:#928374;font-style:italic></span>
+</span></span><span style=display:flex><span>  <span style=color:#928374;font-style:italic>// resolve base commit and tree
+</span></span></span><span style=display:flex><span><span style=color:#928374;font-style:italic></span>  <span style=color:#fe8019>const</span> _parent <span style=color:#fe8019>=</span> <span style=color:#fe8019>await</span> github.rest.git.getRef({ owner, repo, ref });
+</span></span><span style=display:flex><span>  debug(<span style=color:#b8bb26>`getRef -&gt; </span><span style=color:#b8bb26>${</span>JSON.stringify(_parent, <span style=color:#fe8019>null</span>, <span style=color:#d3869b>2</span>)<span style=color:#b8bb26>}</span><span style=color:#b8bb26>`</span>);
+</span></span><span style=display:flex><span>  <span style=color:#fe8019>const</span> parent <span style=color:#fe8019>=</span> _parent.data.object.sha;
+</span></span><span style=display:flex><span>  core.info(<span style=color:#b8bb26>`Resolved </span><span style=color:#b8bb26>${</span>ref<span style=color:#b8bb26>}</span><span style=color:#b8bb26> to commit </span><span style=color:#b8bb26>${</span>parent<span style=color:#b8bb26>}</span><span style=color:#b8bb26>`</span>);
+</span></span><span style=display:flex><span>  <span style=color:#fe8019>const</span> _commit <span style=color:#fe8019>=</span> <span style=color:#fe8019>await</span> github.rest.git.getCommit({ owner, repo, commit_sha<span style=color:#fe8019>:</span> parent });
+</span></span><span style=display:flex><span>  debug(<span style=color:#b8bb26>`getCommit -&gt; </span><span style=color:#b8bb26>${</span>JSON.stringify(_commit, <span style=color:#fe8019>null</span>, <span style=color:#d3869b>2</span>)<span style=color:#b8bb26>}</span><span style=color:#b8bb26>`</span>);
+</span></span><span style=display:flex><span>  <span style=color:#fe8019>const</span> base_tree <span style=color:#fe8019>=</span> _commit.data.tree.sha;
+</span></span><span style=display:flex><span>  core.info(<span style=color:#b8bb26>`Base tree is </span><span style=color:#b8bb26>${</span>base_tree<span style=color:#b8bb26>}</span><span style=color:#b8bb26>`</span>);
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>  <span style=color:#928374;font-style:italic>// get staged changes
+</span></span></span><span style=display:flex><span><span style=color:#928374;font-style:italic></span>  <span style=color:#fe8019>const</span> { stdout<span style=color:#fe8019>:</span> diff } <span style=color:#fe8019>=</span> <span style=color:#fe8019>await</span> exec.getExecOutput(
+</span></span><span style=display:flex><span>    <span style=color:#b8bb26>&#34;git&#34;</span>,
+</span></span><span style=display:flex><span>    [<span style=color:#b8bb26>&#34;diff&#34;</span>, <span style=color:#b8bb26>&#34;--cached&#34;</span>, <span style=color:#b8bb26>&#34;--no-renames&#34;</span>, <span style=color:#b8bb26>&#34;--name-status&#34;</span>],
+</span></span><span style=display:flex><span>    { cwd },
+</span></span><span style=display:flex><span>  );
+</span></span><span style=display:flex><span>  debug(<span style=color:#b8bb26>`git diff: </span><span style=color:#b8bb26>${</span>diff<span style=color:#b8bb26>}</span><span style=color:#b8bb26>`</span>)
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>  <span style=color:#928374;font-style:italic>// create blobs
+</span></span></span><span style=display:flex><span><span style=color:#928374;font-style:italic></span>  <span style=color:#fe8019>const</span> blobs <span style=color:#fe8019>=</span> [];
+</span></span><span style=display:flex><span>  <span style=color:#fe8019>for</span> (<span style=color:#fe8019>const</span> line <span style=color:#fe8019>of</span> diff.split(<span style=color:#b8bb26>&#34;\n&#34;</span>)) {
+</span></span><span style=display:flex><span>    <span style=color:#fe8019>const</span> segments <span style=color:#fe8019>=</span> line.trim().split(<span style=color:#b8bb26>&#34;\t&#34;</span>);
+</span></span><span style=display:flex><span>    <span style=color:#fe8019>if</span> (segments.length <span style=color:#fe8019>!==</span> <span style=color:#d3869b>2</span>) {
+</span></span><span style=display:flex><span>      <span style=color:#fe8019>continue</span>;
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>    <span style=color:#fe8019>const</span> [status, file] <span style=color:#fe8019>=</span> segments;
+</span></span><span style=display:flex><span>    <span style=color:#fe8019>if</span> (status <span style=color:#fe8019>===</span> <span style=color:#b8bb26>&#34;D&#34;</span>) {
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic>// deleted
+</span></span></span><span style=display:flex><span><span style=color:#928374;font-style:italic></span>      blobs.push({ path<span style=color:#fe8019>:</span> file, mode<span style=color:#fe8019>:</span> <span style=color:#b8bb26>&#34;100644&#34;</span>, type<span style=color:#fe8019>:</span> <span style=color:#b8bb26>&#34;blob&#34;</span>, sha<span style=color:#fe8019>:</span> <span style=color:#fe8019>null</span> });
+</span></span><span style=display:flex><span>    } <span style=color:#fe8019>else</span> {
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic>// created or modified
+</span></span></span><span style=display:flex><span><span style=color:#928374;font-style:italic></span>      <span style=color:#fe8019>const</span> content <span style=color:#fe8019>=</span> (<span style=color:#fe8019>await</span> fs.readFile(path.join(cwd, file))).toString(<span style=color:#b8bb26>&#34;base64&#34;</span>);
+</span></span><span style=display:flex><span>      <span style=color:#fe8019>const</span> blob <span style=color:#fe8019>=</span> <span style=color:#fe8019>await</span> github.rest.git.createBlob({ owner, repo, content, encoding<span style=color:#fe8019>:</span> <span style=color:#b8bb26>&#34;base64&#34;</span> });
+</span></span><span style=display:flex><span>      debug(<span style=color:#b8bb26>`createBlob -&gt; </span><span style=color:#b8bb26>${</span>JSON.stringify(blob, <span style=color:#fe8019>null</span>, <span style=color:#d3869b>2</span>)<span style=color:#b8bb26>}</span><span style=color:#b8bb26>`</span>);
+</span></span><span style=display:flex><span>      blobs.push({ path<span style=color:#fe8019>:</span> file, mode<span style=color:#fe8019>:</span> <span style=color:#b8bb26>&#34;100644&#34;</span>, type<span style=color:#fe8019>:</span> <span style=color:#b8bb26>&#34;blob&#34;</span>, sha<span style=color:#fe8019>:</span> blob.data.sha });
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>  }
+</span></span><span style=display:flex><span>  <span style=color:#fe8019>if</span> (blobs.length <span style=color:#fe8019>===</span> <span style=color:#d3869b>0</span>) {
+</span></span><span style=display:flex><span>    core.notice(<span style=color:#b8bb26>&#34;No staged files, skip creating tree&#34;</span>);
+</span></span><span style=display:flex><span>    <span style=color:#fe8019>return</span>;
+</span></span><span style=display:flex><span>  }
+</span></span><span style=display:flex><span>  debug(<span style=color:#b8bb26>`blobs: </span><span style=color:#b8bb26>${</span>JSON.stringify(blobs, <span style=color:#fe8019>null</span>, <span style=color:#d3869b>2</span>)<span style=color:#b8bb26>}</span><span style=color:#b8bb26>`</span>);
+</span></span><span style=display:flex><span>  core.info(<span style=color:#b8bb26>`Staged </span><span style=color:#b8bb26>${</span>blobs.length<span style=color:#b8bb26>}</span><span style=color:#b8bb26> file(s)`</span>);
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>  <span style=color:#928374;font-style:italic>// create tree
+</span></span></span><span style=display:flex><span><span style=color:#928374;font-style:italic></span>  <span style=color:#fe8019>const</span> _tree <span style=color:#fe8019>=</span> <span style=color:#fe8019>await</span> github.rest.git.createTree({ owner, repo, base_tree, tree<span style=color:#fe8019>:</span> blobs });
+</span></span><span style=display:flex><span>  debug(<span style=color:#b8bb26>`createTree -&gt; </span><span style=color:#b8bb26>${</span>JSON.stringify(_tree, <span style=color:#fe8019>null</span>, <span style=color:#d3869b>2</span>)<span style=color:#b8bb26>}</span><span style=color:#b8bb26>`</span>);
+</span></span><span style=display:flex><span>  <span style=color:#fe8019>const</span> tree <span style=color:#fe8019>=</span> _tree.data.sha;
+</span></span><span style=display:flex><span>  core.info(<span style=color:#b8bb26>`Tree </span><span style=color:#b8bb26>${</span>tree<span style=color:#b8bb26>}</span><span style=color:#b8bb26> created`</span>);
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>  <span style=color:#928374;font-style:italic>// create commit
+</span></span></span><span style=display:flex><span><span style=color:#928374;font-style:italic></span>  <span style=color:#fe8019>const</span> commit <span style=color:#fe8019>=</span> <span style=color:#fe8019>await</span> github.rest.git.createCommit({ owner, repo, message, tree, parents<span style=color:#fe8019>:</span> [parent] });
+</span></span><span style=display:flex><span>  debug(<span style=color:#b8bb26>`createCommit -&gt; </span><span style=color:#b8bb26>${</span>JSON.stringify(commit, <span style=color:#fe8019>null</span>, <span style=color:#d3869b>2</span>)<span style=color:#b8bb26>}</span><span style=color:#b8bb26>`</span>);
+</span></span><span style=display:flex><span>  <span style=color:#fe8019>const</span> sha <span style=color:#fe8019>=</span> commit.data.sha;
+</span></span><span style=display:flex><span>  core.info(<span style=color:#b8bb26>`Commit </span><span style=color:#b8bb26>${</span>sha<span style=color:#b8bb26>}</span><span style=color:#b8bb26> created`</span>);
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>  <span style=color:#928374;font-style:italic>// update ref
+</span></span></span><span style=display:flex><span><span style=color:#928374;font-style:italic></span>  <span style=color:#fe8019>const</span> _ref <span style=color:#fe8019>=</span> <span style=color:#fe8019>await</span> github.rest.git.updateRef({ owner, repo, ref, sha });
+</span></span><span style=display:flex><span>  debug(<span style=color:#b8bb26>`updateRef -&gt; </span><span style=color:#b8bb26>${</span>JSON.stringify(_ref, <span style=color:#fe8019>null</span>, <span style=color:#d3869b>2</span>)<span style=color:#b8bb26>}</span><span style=color:#b8bb26>`</span>);
+</span></span><span style=display:flex><span>  core.info(<span style=color:#b8bb26>`Ref </span><span style=color:#b8bb26>${</span>_ref.data.ref<span style=color:#b8bb26>}</span><span style=color:#b8bb26> updated to </span><span style=color:#b8bb26>${</span>_ref.data.object.sha<span style=color:#b8bb26>}</span><span style=color:#b8bb26>`</span>);
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>module.exports <span style=color:#fe8019>=</span> main;
+</span></span></code></pre></div></details><details><summary>GITHUB_TOKEN を利用する場合</summary><div class=highlight><pre tabindex=0 style=color:#ebdbb2;background-color:#282828;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-yaml data-lang=yaml><span style=display:flex><span><span style=color:#fb4934>name</span>: Push by GitHub App
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#fb4934>on</span>:
+</span></span><span style=display:flex><span>  <span style=color:#fb4934>workflow_dispatch</span>:
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#fb4934>jobs</span>:
+</span></span><span style=display:flex><span>  <span style=color:#fb4934>push</span>:
+</span></span><span style=display:flex><span>    <span style=color:#fb4934>permissions</span>:
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># GITHUB_TOKEN で push できるように write 権限を与えます。</span>
+</span></span><span style=display:flex><span>      <span style=color:#fb4934>contents</span>: write
+</span></span><span style=display:flex><span>    <span style=color:#fb4934>runs-on</span>: ubuntu-latest
+</span></span><span style=display:flex><span>    <span style=color:#fb4934>steps</span>:
+</span></span><span style=display:flex><span>      - <span style=color:#fb4934>uses</span>: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 <span style=color:#928374;font-style:italic># v5.0.0生</span>
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># ダミーの差分を生じさせます。</span>
+</span></span><span style=display:flex><span>      - <span style=color:#fb4934>name</span>: Make changes
+</span></span><span style=display:flex><span>        <span style=color:#fb4934>run</span>: |<span style=color:#b8bb26>
+</span></span></span><span style=display:flex><span><span style=color:#b8bb26>          echo &#34;{\&#34;value\&#34;:$RANDOM}&#34; &gt; a.txt
+</span></span></span><span style=display:flex><span><span style=color:#b8bb26>          git add a.txt</span>
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># GITHUB_TOKEN を利用して API を呼び出してコミットおよびプッシュします。</span>
+</span></span><span style=display:flex><span>      - <span style=color:#fb4934>uses</span>: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd <span style=color:#928374;font-style:italic># v8.0.0</span>
+</span></span><span style=display:flex><span>        <span style=color:#fb4934>env</span>:
+</span></span><span style=display:flex><span>          <span style=color:#fb4934>REPOSITORY</span>: ${{ github.repository }}
+</span></span><span style=display:flex><span>        <span style=color:#fb4934>with</span>:
+</span></span><span style=display:flex><span>          <span style=color:#fb4934>github-token</span>: ${{ secrets.GITHUB_TOKEN }}
+</span></span><span style=display:flex><span>          <span style=color:#fb4934>script</span>: await (require(&#34;./.github/workflows/push.js&#34;)({ core, exec, github }))
+</span></span></code></pre></div></details><details><summary>独自の GitHub App を利用する場合</summary><div class=highlight><pre tabindex=0 style=color:#ebdbb2;background-color:#282828;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-yaml data-lang=yaml><span style=display:flex><span><span style=color:#fb4934>name</span>: Push by GitHub App
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#fb4934>on</span>:
+</span></span><span style=display:flex><span>  <span style=color:#fb4934>workflow_dispatch</span>:
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#fb4934>jobs</span>:
+</span></span><span style=display:flex><span>  <span style=color:#fb4934>push</span>:
+</span></span><span style=display:flex><span>    <span style=color:#fb4934>permissions</span>:
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># プッシュは GitHub App の権限によって行うため、GITHUB_TOKEN 自身に write 権限は不要です。</span>
+</span></span><span style=display:flex><span>      <span style=color:#fb4934>contents</span>: read
+</span></span><span style=display:flex><span>    <span style=color:#fb4934>runs-on</span>: ubuntu-latest
+</span></span><span style=display:flex><span>    <span style=color:#fb4934>steps</span>:
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># GitHub App Installation Access Token (IAT) を取得します。</span>
+</span></span><span style=display:flex><span>      - <span style=color:#fb4934>uses</span>: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42 <span style=color:#928374;font-style:italic># v2.1.4</span>
+</span></span><span style=display:flex><span>        <span style=color:#fb4934>id</span>: auth
+</span></span><span style=display:flex><span>        <span style=color:#fb4934>with</span>:
+</span></span><span style=display:flex><span>          <span style=color:#fb4934>app-id</span>: ${{ secrets.APP_ID }}
+</span></span><span style=display:flex><span>          <span style=color:#fb4934>private-key</span>: ${{ secrets.APP_PRIVATE_KEY }}
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># 取得した IAT を利用して HTTPS 認証しリポジトリクローンします。</span>
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># ジョブが実行されているリポジトリ自身であればクローン自体は secrets.GITHUB_TOKEN を利用しても良いですが、</span>
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># この方法であれば App がアクセスできる任意のリポジトリに対してクローンすることができます。</span>
+</span></span><span style=display:flex><span>      - <span style=color:#fb4934>uses</span>: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 <span style=color:#928374;font-style:italic># v5.0.0</span>
+</span></span><span style=display:flex><span>        <span style=color:#fb4934>with</span>:
+</span></span><span style=display:flex><span>          <span style=color:#fb4934>persist-credentials</span>: <span style=color:#fe8019>false</span>
+</span></span><span style=display:flex><span>          <span style=color:#fb4934>token</span>: ${{ steps.auth.outputs.token }}
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># ダミーの差分を生じさせます。</span>
+</span></span><span style=display:flex><span>      - <span style=color:#fb4934>name</span>: Make changes
+</span></span><span style=display:flex><span>        <span style=color:#fb4934>run</span>: |<span style=color:#b8bb26>
+</span></span></span><span style=display:flex><span><span style=color:#b8bb26>          echo &#34;{\&#34;value\&#34;:$RANDOM}&#34; &gt; a.txt
+</span></span></span><span style=display:flex><span><span style=color:#b8bb26>          git add a.txt</span>
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># 発行した IAT を利用して API を呼び出してコミットおよびプッシュします。</span>
+</span></span><span style=display:flex><span>      - <span style=color:#fb4934>uses</span>: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd <span style=color:#928374;font-style:italic># v8.0.0</span>
+</span></span><span style=display:flex><span>        <span style=color:#fb4934>env</span>:
+</span></span><span style=display:flex><span>          <span style=color:#fb4934>REPOSITORY</span>: ${{ github.repository }}
+</span></span><span style=display:flex><span>        <span style=color:#fb4934>with</span>:
+</span></span><span style=display:flex><span>          <span style=color:#fb4934>github-token</span>: ${{ steps.auth.outputs.token }}
+</span></span><span style=display:flex><span>          <span style=color:#fb4934>script</span>: await (require(&#34;./.github/workflows/push.js&#34;)({ core, exec, github }))
+</span></span></code></pre></div></details><details><summary>独自の GitHub App を利用して別のリポジトリにアクセスする場合</summary><div class=highlight><pre tabindex=0 style=color:#ebdbb2;background-color:#282828;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-yaml data-lang=yaml><span style=display:flex><span><span style=color:#fb4934>name</span>: Push by GitHub App
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#928374;font-style:italic># このワークフローでは GitHub App を利用して、このワークフローが実行されるのとは別のリポジトリへアクセスします。</span>
+</span></span><span style=display:flex><span><span style=color:#928374;font-style:italic># 以下の変数を定義しておきます。</span>
+</span></span><span style=display:flex><span><span style=color:#928374;font-style:italic>#  - vars.TARGET_REPO_OWNER</span>
+</span></span><span style=display:flex><span><span style=color:#928374;font-style:italic>#  - vars.TARGET_REPO_NAME</span>
+</span></span><span style=display:flex><span><span style=color:#928374;font-style:italic>#  - vars.TARGET_REPO_BRANCH</span>
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#fb4934>on</span>:
+</span></span><span style=display:flex><span>  <span style=color:#fb4934>workflow_dispatch</span>:
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#fb4934>jobs</span>:
+</span></span><span style=display:flex><span>  <span style=color:#fb4934>push</span>:
+</span></span><span style=display:flex><span>    <span style=color:#fb4934>permissions</span>:
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># プッシュは GitHub App の権限によって行うため、GITHUB_TOKEN 自身に write 権限は不要です。</span>
+</span></span><span style=display:flex><span>      <span style=color:#fb4934>contents</span>: read
+</span></span><span style=display:flex><span>    <span style=color:#fb4934>runs-on</span>: ubuntu-latest
+</span></span><span style=display:flex><span>    <span style=color:#fb4934>steps</span>:
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># .github/workflows/push.js を利用するため、本体リポジトリも取得しておく必要があります。</span>
+</span></span><span style=display:flex><span>      - <span style=color:#fb4934>uses</span>: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 <span style=color:#928374;font-style:italic># v5.0.0</span>
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># GitHub App Installation Access Token (IAT) を取得します。</span>
+</span></span><span style=display:flex><span>      - <span style=color:#fb4934>uses</span>: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42 <span style=color:#928374;font-style:italic># v2.1.4</span>
+</span></span><span style=display:flex><span>        <span style=color:#fb4934>id</span>: auth
+</span></span><span style=display:flex><span>        <span style=color:#fb4934>with</span>:
+</span></span><span style=display:flex><span>          <span style=color:#fb4934>app-id</span>: ${{ secrets.APP_ID }}
+</span></span><span style=display:flex><span>          <span style=color:#fb4934>private-key</span>: ${{ secrets.APP_PRIVATE_KEY }}
+</span></span><span style=display:flex><span>          <span style=color:#fb4934>owner</span>: ${{ vars.TARGET_REPO_OWNER }}
+</span></span><span style=display:flex><span>          <span style=color:#fb4934>repositories</span>: ${{ vars.TARGET_REPO_NAME }}
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># アクセスする対象のリポジトリをクローンします。</span>
+</span></span><span style=display:flex><span>      - <span style=color:#fb4934>uses</span>: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 <span style=color:#928374;font-style:italic># v5.0.0</span>
+</span></span><span style=display:flex><span>        <span style=color:#fb4934>with</span>:
+</span></span><span style=display:flex><span>          <span style=color:#fb4934>path</span>: target
+</span></span><span style=display:flex><span>          <span style=color:#fb4934>repository</span>: ${{ vars.TARGET_REPO_OWNER }}${{ &#39;/&#39; }}${{ vars.TARGET_REPO_NAME }}
+</span></span><span style=display:flex><span>          <span style=color:#fb4934>ref</span>: ${{ vars.TARGET_REPO_BRANCH }}
+</span></span><span style=display:flex><span>          <span style=color:#fb4934>persist-credentials</span>: <span style=color:#fe8019>false</span>
+</span></span><span style=display:flex><span>          <span style=color:#fb4934>token</span>: ${{ steps.auth.outputs.token }}
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># ダミーの差分を生じさせます。</span>
+</span></span><span style=display:flex><span>      - <span style=color:#fb4934>name</span>: Make changes
+</span></span><span style=display:flex><span>        <span style=color:#fb4934>working-directory</span>: target
+</span></span><span style=display:flex><span>        <span style=color:#fb4934>run</span>: |<span style=color:#b8bb26>
+</span></span></span><span style=display:flex><span><span style=color:#b8bb26>          echo &#34;{\&#34;value\&#34;:$RANDOM}&#34; &gt; a.txt
+</span></span></span><span style=display:flex><span><span style=color:#b8bb26>          git add a.txt</span>
+</span></span><span style=display:flex><span>      <span style=color:#928374;font-style:italic># 発行した IAT を利用して API を呼び出してコミットおよびプッシュします。</span>
+</span></span><span style=display:flex><span>      - <span style=color:#fb4934>uses</span>: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd <span style=color:#928374;font-style:italic># v8.0.0</span>
+</span></span><span style=display:flex><span>        <span style=color:#fb4934>env</span>:
+</span></span><span style=display:flex><span>          <span style=color:#fb4934>ROOT_DIR</span>: target
+</span></span><span style=display:flex><span>          <span style=color:#fb4934>REPOSITORY</span>: ${{ vars.TARGET_REPO_OWNER }}${{ &#39;/&#39; }}${{ vars.TARGET_REPO_NAME }}
+</span></span><span style=display:flex><span>          <span style=color:#fb4934>REF</span>: ${{ vars.TARGET_REPO_BRANCH }}
+</span></span><span style=display:flex><span>        <span style=color:#fb4934>with</span>:
+</span></span><span style=display:flex><span>          <span style=color:#fb4934>github-token</span>: ${{ steps.auth.outputs.token }}
+</span></span><span style=display:flex><span>          <span style=color:#fb4934>script</span>: await (require(&#34;./.github/workflows/push.js&#34;)({ core, exec, github }))
+</span></span></code></pre></div></details></p><p>ワークフローを実行するたびに、当該リポジトリに署名付きの GitHub App によるコミットがプッシュされるはずです。</p><figure><img src=/posts/github-actions-signed-commit/example_signed_commit.png alt="GitHub App によってプッシュされた署名付きコミット" width=80%><figcaption><p>GitHub App によってプッシュされた署名付きコミット</p></figcaption></figure><p>解説</p><ul><li>.github/workflows/push.js は、git commit および git push コマンドを呼び出す代わりに、GitHub API の呼び出しでこれに相当する手続きを行っています。</li><li>このスクリプトでは Git の低レベル操作を API 経由で行っています。<ul><li>前提知識の解説まではしませんが、たとえば <a href=https://git-scm.com/book/ja/v2/Git%e3%81%ae%e5%86%85%e5%81%b4-Git%e3%82%aa%e3%83%96%e3%82%b8%e3%82%a7%e3%82%af%e3%83%88 target=_blank rel="noopener noreferrer">10.2 Gitの内側 - Gitオブジェクト</a>, <a href=https://adsholoko.me/blog/deep-into-git-internals/ target=_blank rel="noopener noreferrer">よくわかるGitの仕組み</a> などを参考に概念を把握しておくと、以降の記述の理解の助けになるでしょう。</li></ul></li><li>スクリプトにおいて git commit に対応する API 呼び出しは <a href="https://docs.github.com/rest/git/commits?apiVersion=2022-11-28#create-a-commit" target=_blank rel="noopener noreferrer">createCommit</a> です。<ul><li>createCommit を呼び出すためには <code>tree</code> および <code>parents</code> パラメータが必要です。</li><li><code>tree</code> は <a href="https://docs.github.com/rest/git/trees?apiVersion=2022-11-28#create-a-tree" target=_blank rel="noopener noreferrer">createTree</a> の呼び出しによって作成される <a href=https://git-scm.com/book/en/v2/Git-Internals-Git-Objects#_tree_objects target=_blank rel="noopener noreferrer">tree object</a> です。<ul><li>createTree を呼び出すためには <code>base_tree</code> および <code>tree</code> パラメータが必要です。</li><li><code>base_tree</code> は作成する tree object の親を指定します。この実装では最も単純なケースのみを考慮し、プッシュ先としたブランチの最新コミットを取得し (<a href="https://docs.github.com/rest/git/refs?apiVersion=2022-11-28#get-a-reference" target=_blank rel="noopener noreferrer">getRef</a>, <a href="https://docs.github.com/rest/commits/commits?apiVersion=2022-11-28#get-a-commit" target=_blank rel="noopener noreferrer">getCommit</a>) そのコミットに紐づく tree object を指定しています。</li><li><code>tree</code> には blob object のリストを与えます。<ul><li>その要素は:<ul><li>ファイルの作成・編集差分に対しては <a href="https://docs.github.com/rest/git/blobs?apiVersion=2022-11-28#create-a-blob" target=_blank rel="noopener noreferrer">createBlob</a> により作成することができます。</li><li>ファイルの削除差分に対しては <code>sha: null</code> の形で与えることで表現します。</li></ul></li><li>この実装では単純化のため、事前に git add コマンドによってステージングされた差分を git diff コマンドによって取得し、コミット対象としています。</li><li>コミット対象の一覧を得る方法はこれに限られるわけではありません。たとえば、明示的にコミットしたいファイルの一覧を与えることもできるでしょう。</li></ul></li></ul></li><li><code>parents</code> で親コミットを指定します。ここでは前述の手続きですでに得たプッシュ先ブランチの最新コミットを与えています。</li></ul></li><li>スクリプトにおいて git push に対応する API 呼び出しは <a href="https://docs.github.com/rest/git/refs?apiVersion=2022-11-28#update-a-reference" target=_blank rel="noopener noreferrer">updateRef</a> です。<ul><li>この呼び出しにより、プッシュ先ブランチは createCommit で作成したコミットを先頭に 1 つ進みます。</li></ul></li><li>&#9888;&#xfe0f; このスクリプトは非常に限定的なシナリオでのみ動作することが想定され、API で実現されうるあらゆる操作に対応しているわけではありません。<ul><li>たとえば createTree では tree.mode として <code>100755</code> (executable), <code>120000</code> (symlink) などがありますが、まったく考慮していません。</li></ul></li></ul><h2 id=まとめ>まとめ <a class=heading_anchor href=#%e3%81%be%e3%81%a8%e3%82%81 title=まとめ>#</a></h2><p>GitHub Actions から署名付きコミットをプッシュするには、GitHub App を利用する手法が有力です。</p><ul><li>この手法では Installation Access Token (IAT) を利用して API を呼び出すことでコミットおよびプッシュを行い、git コマンドによる操作を行いません。</li><li>Blob, Tree, Commit, Reference といった一連の低レベル操作を API によって実装しなければならず、実装コスト・保守性には課題があります。</li></ul><p>なお、私はこの手法を具体的に以下のようなケースで応用しています。</p><ul><li><a href=https://docs.github.com/actions/reference/workflows-and-actions/events-that-trigger-workflows target=_blank rel="noopener noreferrer">on: schedule</a> トリガーによって起動された処理でリポジトリ内のデータファイルを更新しこれをプッシュ、プッシュに起因して別のデプロイ用ワークフローを発動させる。<ul><li>これは secrets.GITHUB_TOKEN の制約を回避しつつ、定期的なデータの更新からデプロイまでを自動化した例です。</li><li>別のアプローチとして schedule された処理でデプロイまで行うよう実装することも可能ではありますが、責務を分離してシンプルなワークフロー構成とできる利点があります。</li></ul></li><li>Pages のソースリポジトリと公開用リポジトリを分離する。<ul><li>Free アカウントの場合 Pages は<a href=https://docs.github.com/pages/getting-started-with-github-pages/creating-a-github-pages-site#creating-a-repository-for-your-site target=_blank rel="noopener noreferrer">パブリックリポジトリでしか利用できません</a>が、この手法を採用すると、成果物だけを公開用のリポジトリに配置し（これらはどのみちブラウザアクセスできる）、ソースリポジトリはプライベートとすることができます。</li><li>具体的にはこの web サイトをホストしているリポジトリです → <a href=https://github.com/fuzmish/fuzmish.github.io target=_blank rel="noopener noreferrer">fuzmish/fuzmish.github.io</a></li></ul></li></ul></main></body></html>

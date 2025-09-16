@@ -1,0 +1,48 @@
+name: Push by GitHub App
+
+on:
+  workflow_dispatch:
+
+jobs:
+  push:
+    permissions:
+      # プッシュは GitHub App の権限によって行うため、GITHUB_TOKEN 自身に write 権限は不要です。
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      # GitHub App Installation Access Token (IAT) を取得します。
+      - uses: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42 # v2.1.4
+        id: auth
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+      # 取得した IAT を利用して HTTPS 認証しリポジトリクローンします。
+      # ジョブが実行されているリポジトリ自身であればクローン自体は secrets.GITHUB_TOKEN を利用しても良いですが、
+      # この方法であれば App がアクセスできる任意のリポジトリに対してクローンすることができます。
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+          token: ${{ steps.auth.outputs.token }}
+      # GITHUB_TOKEN とは異なり App に対応する Bot ユーザーは固有のため、ユーザー情報を動的に取得します。
+      # このステップは GITHUB_TOKEN を利用した場合と同様に github-actions[bot] としても良いですが、
+      # 後に説明する署名付きコミットの手法で得られる結果と対応づけるためにこのようにしています。
+      - name: Configure git user info
+        env:
+          GH_TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          set -x
+          USER_NAME='${{ steps.auth.outputs.app-slug }}[bot]'
+          USER_ID="$(gh api "/users/$USER_NAME" --jq .id)"
+          git config user.name "$USER_NAME"
+          git config user.email "$USER_ID+$USER_NAME@users.noreply.github.com"
+      # ダミーの差分を生じさせます。
+      - name: Make changes
+        run: |
+          echo "{\"value\":$RANDOM}" > a.txt
+          git add a.txt
+      # IAT を利用して HTTPS 認証しプッシュします。
+      - name: Commit and Push
+        run: |
+          git commit -m 'automated'
+          git remote set-url origin 'https://x-access-token:${{ steps.auth.outputs.token }}@github.com/${{ github.repository }}.git'
+          git push
