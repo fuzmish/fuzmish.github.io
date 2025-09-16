@@ -16,6 +16,10 @@ header ul li a {
   color: var(--c-fg0);
 }
 
+header ul li a .si {
+  fill: var(--c-fg0);
+}
+
 header ul li:first-child {
   flex-grow: 1;
   font-weight: bold;

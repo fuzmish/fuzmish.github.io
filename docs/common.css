@@ -73,13 +73,14 @@ a[target="_blank"]:hover {
 pre {
   margin: 0;
   padding: 1em;
-  line-height: 1.3;
+  line-height: 1.4;
   overflow-x: auto;
 }
 
 code {
   font-family: consolas, monospace;
   font-size: 90%;
+  text-wrap: pretty;
 }
 
 details {
@@ -109,20 +110,15 @@ figcaption p {
 
 /* simple icons */
 .si {
-  display: inline-block;
-  width: 1em;
-  height: 1em;
-  background-repeat: no-repeat;
-  transition: background-image 0.2s ease;
-  vertical-align: middle;
+  fill: var(--c-fg0);
+  vertical-align: text-bottom;
+  transition: fill 0.2s ease;
 }
 
-.si.github {
-  background-image: url("https://cdn.simpleicons.org/github/fbf1c7"),url("https://cdn.simpleicons.org/github/83a598");
-  background-repeat: no-repeat;
-  transition: background-image 0.2s ease;
+a .si {
+  fill: var(--c-blue1);
 }
 
-a .si.github:hover {
-  background-image: url("https://cdn.simpleicons.org/github/83a598");
+a:hover .si {
+  fill: var(--c-blue2);
 }
