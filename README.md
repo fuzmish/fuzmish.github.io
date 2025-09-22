@@ -1,1 +1,1 @@
-https://fuzmish.github.io/
+[![Deploy](https://github.com/fuzmish/fuzmish.github.io/actions/workflows/deploy.yml/badge.svg?branch=main&event=workflow_dispatch)](https://github.com/fuzmish/fuzmish.github.io/actions/workflows/deploy.yml)
